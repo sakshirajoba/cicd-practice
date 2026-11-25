@@ -1,0 +1,63 @@
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: action/checout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: Lint
+      run: flake8 app.py test_app.py --max-line-length=100
+    
+    - name: Run tests
+      run: pytest -v
+
+    - name : Save build artifact
+      uses : actions/upload-artifact@v4
+      with:
+        name : app-package
+        path : app.py
+
+  terraform-validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+    - uses: actions/checkout@v4
+    - uses: hashicorp/setup-terraform@v3
+    - run: terraform fmt -check
+    - run: terraform init
+    - run: terraform validate
+    - run: terraform plan
+  
+  deploy:
+    needs: [test, terraform-validate]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: app-package
+    - uses: hashicorp/setup-terraform@v3
+    - run: terraform init
+    - name: Deploy
+      run: terraform apply -auto-approve -var="app_version=${{github.sha}}"
+    - name: 
+      run: cat deploy/dev-info.txt
